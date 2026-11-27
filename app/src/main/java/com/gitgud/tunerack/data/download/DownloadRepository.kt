@@ -1,5 +1,6 @@
 package com.gitgud.tunerack.data.download
 
+import com.gitgud.tunerack.data.settings.AudioSettings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -48,6 +49,7 @@ class DownloadRepository(
     private val context: Context,
     private val dao: LibraryDao,
     private val http: OkHttpClient,
+    private val audioSettings: AudioSettings,
 ) {
     private val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
     private val _folder = MutableStateFlow(prefs.getString(KEY_FOLDER, null)?.toUri())
@@ -186,7 +188,7 @@ class DownloadRepository(
         dao.setDownloadState(songId, DownloadEntity.RUNNING, 0f, now())
 
         val source = try {
-            YouTubeMusic.resolveDownload(songId)
+            YouTubeMusic.resolveDownload(songId, audioSettings.download.value.maxKbps)
         } catch (e: ExtractionException) {
             throw e.toPlaybackException()
         }

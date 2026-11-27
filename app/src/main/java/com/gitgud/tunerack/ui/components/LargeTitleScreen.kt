@@ -1,5 +1,8 @@
 package com.gitgud.tunerack.ui.components
 
+import com.gitgud.tunerack.ui.tutorial.HelpButton
+import com.gitgud.tunerack.ui.tutorial.AutoTour
+import com.gitgud.tunerack.ui.tutorial.Tour
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,8 +50,11 @@ fun LargeTitleScreen(
     backLabel: String = "",
     showLargeTitle: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    /** This screen's tips: adds a ? button and shows them once on first visit. */
+    tour: Tour? = null,
     content: LazyListScope.() -> Unit,
 ) {
+    if (tour != null) AutoTour(tour)
     val colors = TuneRackTheme.colors
     val titlePx = with(LocalDensity.current) { LargeTitleHeight.toPx() }
     val collapse by remember(listState) {
@@ -108,8 +114,11 @@ fun LargeTitleScreen(
                         BasicText(backLabel, style = TuneRackTheme.typography.body.copy(color = colors.label))
                     }
                 }
-                if (trailing != null) {
-                    Box(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) { trailing() }
+                if (trailing != null || tour != null) {
+                    Row(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (tour != null) HelpButton(tour)
+                        trailing?.invoke()
+                    }
                 }
             }
             Box(

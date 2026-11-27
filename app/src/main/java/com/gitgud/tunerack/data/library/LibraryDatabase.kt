@@ -82,6 +82,7 @@ data class DownloadEntity(
 /** A Spotify chart track matched to a YouTube Music song, so each is searched only once. */
 @Entity(tableName = "chart_matches")
 data class ChartMatchEntity(
+    /** ChartEntry.matchKey: a Spotify track id, or "yt:artist - title" for YouTube country charts. */
     @PrimaryKey val spotifyTrackId: String,
     val videoId: String,
     val title: String,
@@ -158,6 +159,9 @@ interface LibraryDao {
         """,
     )
     fun playlists(): Flow<List<PlaylistSummary>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM playlists WHERE id = :id)")
+    suspend fun playlistExists(id: Long): Boolean
 
     @Query("SELECT * FROM playlists WHERE id = :id")
     fun playlist(id: Long): Flow<PlaylistEntity?>

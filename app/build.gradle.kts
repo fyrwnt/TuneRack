@@ -59,6 +59,8 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.newpipe.extractor)
     implementation(libs.jsoup)
+    implementation(libs.play.services.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
     coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
 
     implementation(libs.work.runtime)

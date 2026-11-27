@@ -1,5 +1,6 @@
 package com.gitgud.tunerack.ui.components
 
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -198,6 +199,8 @@ fun SongRow(
     isCurrent: Boolean,
     onMore: () -> Unit,
     download: DownloadEntity? = null,
+    /** Tutorial target id for this row's ••• button (set on one row only). */
+    moreTarget: String? = null,
     onClick: () -> Unit,
 ) {
     val colors = TuneRackTheme.colors
@@ -237,7 +240,10 @@ fun SongRow(
                 )
             }
         }
-        Box(Modifier.size(40.dp).pressable(onClick = onMore), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(40.dp).then(if (moreTarget != null) Modifier.tutorialTarget(moreTarget) else Modifier).pressable(onClick = onMore),
+            contentAlignment = Alignment.Center,
+        ) {
             TuneIcon(TuneIcons.More, colors.secondaryLabel, size = 20.dp)
         }
     }

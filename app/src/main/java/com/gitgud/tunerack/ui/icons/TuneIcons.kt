@@ -108,6 +108,31 @@ object TuneIcons {
         icon("ChevronRight") { stroke(2.2f) { moveTo(9f, 5.5f); lineTo(15.5f, 12f); lineTo(9f, 18.5f) } }
     }
 
+    val Person by lazy {
+        icon("Person") {
+            stroke {
+                circle(12f, 8.5f, 3.8f)
+                moveTo(4.8f, 20f)
+                quadTo(5.6f, 14.3f, 12f, 14.3f)
+                quadTo(18.4f, 14.3f, 19.2f, 20f)
+            }
+        }
+    }
+
+    val Help by lazy {
+        icon("Help") {
+            stroke { circle(12f, 12f, 9f) }
+            stroke(2f) {
+                moveTo(9.3f, 9.4f)
+                quadTo(9.6f, 7f, 12f, 7f)
+                quadTo(14.7f, 7f, 14.7f, 9.5f)
+                quadTo(14.7f, 11f, 12.9f, 11.9f)
+                quadTo(12f, 12.4f, 12f, 13.8f)
+            }
+            fill { circle(12f, 16.9f, 1.15f) }
+        }
+    }
+
     val Checkmark by lazy {
         icon("Checkmark") { stroke(2.4f) { moveTo(5f, 12.5f); lineTo(10f, 17.5f); lineTo(19f, 7f) } }
     }

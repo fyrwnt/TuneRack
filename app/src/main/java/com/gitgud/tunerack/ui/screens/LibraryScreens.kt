@@ -1,5 +1,7 @@
 package com.gitgud.tunerack.ui.screens
 
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
+import com.gitgud.tunerack.ui.tutorial.Tour
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -121,18 +123,22 @@ private fun LibraryRoot(push: (String) -> Unit) {
     val sheets = LocalSheets.current
     LargeTitleScreen(
         "Library",
+        tour = Tour.Library,
         trailing = {
-            Box(Modifier.size(40.dp).pressable { sheets.show(SheetRequest.LibraryOptions) }, contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(40.dp).tutorialTarget("library.more").pressable { sheets.show(SheetRequest.LibraryOptions) },
+                contentAlignment = Alignment.Center,
+            ) {
                 TuneIcon(TuneIcons.More, TuneRackTheme.colors.label, size = 20.dp)
             }
         },
     ) {
-        item(key = Playlists) { NavigationRow("Playlists", TuneIcons.Playlists) { push(Playlists) } }
-        item(key = Artists) { NavigationRow("Artists", TuneIcons.Artists) { push(Artists) } }
+        item(key = Playlists) { Box(Modifier.tutorialTarget("library.playlists")) { NavigationRow("Playlists", TuneIcons.Playlists) { push(Playlists) } } }
+        item(key = Artists) { Box(Modifier.tutorialTarget("library.artists")) { NavigationRow("Artists", TuneIcons.Artists) { push(Artists) } } }
         // Hidden until album data exists (search results don't carry albums yet).
         // item(key = "albums") { NavigationRow("Albums", TuneIcons.Albums) { } }
-        item(key = Songs) { NavigationRow("Songs", TuneIcons.Songs) { push(Songs) } }
-        item(key = Downloaded) { NavigationRow("Downloaded", TuneIcons.Downloaded) { push(Downloaded) } }
+        item(key = Songs) { Box(Modifier.tutorialTarget("library.songs")) { NavigationRow("Songs", TuneIcons.Songs) { push(Songs) } } }
+        item(key = Downloaded) { Box(Modifier.tutorialTarget("library.downloaded")) { NavigationRow("Downloaded", TuneIcons.Downloaded) { push(Downloaded) } } }
 
         item(key = "recent-header") { SectionHeader("Recently Added", showChevron = false) }
         val songs = liked ?: return@LargeTitleScreen
@@ -196,20 +202,21 @@ private fun TrackListScreen(
     playlistId: Long? = null,
     header: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    tour: Tour = Tour.SongList,
 ) {
     val player = LocalPlayerConnection.current
     val sheets = LocalSheets.current
     val state by player.state.collectAsStateWithLifecycle()
     val downloadStates by LocalContext.current.tuneRack.downloads.states.collectAsStateWithLifecycle(emptyMap())
 
-    LargeTitleScreen(title, onBack = pop, backLabel = backLabel, showLargeTitle = header == null, trailing = trailing) {
+    LargeTitleScreen(title, onBack = pop, backLabel = backLabel, showLargeTitle = header == null, trailing = trailing, tour = tour) {
         if (header != null) item(key = "header") { header() }
         val list = tracks ?: return@LargeTitleScreen
         if (list.isEmpty()) {
             item(key = "empty") { EmptyMessage(emptyTitle, emptyMessage) }
             return@LargeTitleScreen
         }
-        item(key = "buttons") { PlayShuffleButtons(list) }
+        item(key = "buttons") { Box(Modifier.tutorialTarget("playlist.buttons")) { PlayShuffleButtons(list) } }
         list.forEachIndexed { index, track ->
             item(key = "t-${track.id}") {
                 SongRow(
@@ -217,6 +224,7 @@ private fun TrackListScreen(
                     isCurrent = state.nowPlaying?.mediaId == track.id,
                     onMore = { sheets.show(SheetRequest.Song(track, playlistId)) },
                     download = downloadStates[track.id],
+                    moreTarget = if (index == 0) "songs.more" else null,
                     onClick = { player.playQueue(list, index) },
                 )
             }
@@ -310,9 +318,10 @@ private fun PlaylistScreen(id: Long, pop: () -> Unit, backLabel: String) {
         emptyTitle = "This playlist is empty",
         emptyMessage = "Tap ••• on any song and choose Add to a Playlist.",
         playlistId = id,
+        tour = Tour.Playlist,
         trailing = {
             Box(
-                Modifier.size(40.dp).pressable { sheets.show(SheetRequest.PlaylistOptions(id, name)) },
+                Modifier.size(40.dp).tutorialTarget("playlist.more").pressable { sheets.show(SheetRequest.PlaylistOptions(id, name)) },
                 contentAlignment = Alignment.Center,
             ) { TuneIcon(TuneIcons.More, colors.label, size = 20.dp) }
         },
@@ -378,11 +387,12 @@ private fun DownloadedScreen(pop: () -> Unit, backLabel: String) {
     val entries by downloads.songs.collectAsStateWithLifecycle(null)
     val playing by player.state.collectAsStateWithLifecycle()
 
-    LargeTitleScreen("Downloaded", onBack = pop, backLabel = backLabel) {
+    LargeTitleScreen("Downloaded", onBack = pop, backLabel = backLabel, tour = Tour.Downloaded) {
         item(key = "folder") {
             Row(
                 Modifier
                     .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .tutorialTarget("downloaded.folder")
                     .fillMaxWidth()
                     .background(colors.fill, RoundedCornerShape(14.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -434,7 +444,7 @@ private fun DownloadedScreen(pop: () -> Unit, backLabel: String) {
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
         }
-        if (done.isNotEmpty()) item(key = "buttons") { PlayShuffleButtons(done) }
+        if (done.isNotEmpty()) item(key = "buttons") { Box(Modifier.tutorialTarget("downloaded.buttons")) { PlayShuffleButtons(done) } }
         list.forEach { entry ->
             val track = entry.song.toTrack()
             item(key = "d-${track.id}") {

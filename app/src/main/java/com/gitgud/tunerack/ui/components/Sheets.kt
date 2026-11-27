@@ -69,6 +69,7 @@ import com.gitgud.tunerack.data.library.LibraryRepository
 import com.gitgud.tunerack.playback.LocalPlayerConnection
 import com.gitgud.tunerack.tuneRack
 import com.gitgud.tunerack.ui.icons.TuneIcons
+import com.gitgud.tunerack.ui.tutorial.LocalTutorial
 import com.gitgud.tunerack.ui.theme.TuneRackTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -80,7 +81,10 @@ sealed interface SheetRequest {
     data object NewPlaylist : SheetRequest
     data class PlaylistOptions(val id: Long, val name: String) : SheetRequest
     data object LibraryOptions : SheetRequest
-    class Countries(val countries: List<ChartCountry>, val selected: String, val onPick: (String) -> Unit) : SheetRequest
+    data object Feedback : SheetRequest
+    data object Account : SheetRequest
+    data object AudioQuality : SheetRequest
+    class Countries(val title: String, val countries: List<ChartCountry>, val selected: String, val onPick: (String) -> Unit) : SheetRequest
 }
 
 /** App-wide host for action sheets and the confirmation HUD, so any screen can open them. */
@@ -112,7 +116,8 @@ fun SheetHost(controller: SheetController) {
 
     var mode by remember(request) { mutableStateOf(Mode.Actions) }
 
-    BackHandler(enabled = request != null) { controller.dismiss() }
+    // Composed only while a sheet is open, so it takes back presses ahead of the screens below.
+    if (request != null) BackHandler { controller.dismiss() }
 
     // Writes are launched from the host, which lives as long as the activity, so closing the sheet
     // never cancels a save half-way.
@@ -160,6 +165,9 @@ fun SheetHost(controller: SheetController) {
                     }
                     is SheetRequest.PlaylistOptions -> PlaylistOptionsSheet(r, mode, onMode = { mode = it }, controller, actions)
                     is SheetRequest.LibraryOptions -> LibraryOptionsSheet(controller)
+                    is SheetRequest.Feedback -> FeedbackSheet(controller)
+                    is SheetRequest.Account -> AccountSheet(controller)
+                    is SheetRequest.AudioQuality -> AudioQualitySheet()
                     is SheetRequest.Countries -> CountrySheet(r, controller)
                     null -> {}
                 }
@@ -266,7 +274,7 @@ private fun SongSheet(request: SheetRequest.Song, mode: Mode, onMode: (Mode) -> 
                 }
             }
             ActionRow("Add to a Playlist…", TuneIcons.Playlists) { onMode(Mode.PickPlaylist) }
-            if (request.chartEntry?.spotifyTrackId != null) {
+            if (request.chartEntry?.matchKey != null) {
                 ActionRow("Wrong Song? Choose Another…", TuneIcons.Search) { onMode(Mode.FixMatch) }
             }
             when (downloadStates[track.id]?.state) {
@@ -354,6 +362,10 @@ private fun LibraryOptionsSheet(controller: SheetController) {
         ActionRow("Export Library\u2026", TuneIcons.PlayLast) { controller.dismiss(); tools.export() }
         ActionRow("Import Library\u2026", TuneIcons.PlayNext) { controller.dismiss(); tools.import() }
         ActionRow("Re-scan Download Folder", TuneIcons.Downloaded) { controller.dismiss(); tools.rescan() }
+        ActionRow("Audio Quality\u2026", TuneIcons.Songs) { controller.show(SheetRequest.AudioQuality) }
+        val tutorial = LocalTutorial.current
+        ActionRow("Show Tutorial Again", TuneIcons.Help) { controller.dismiss(); tutorial.resetAndStart() }
+        ActionRow("Send Feedback\u2026", TuneIcons.Pencil) { controller.show(SheetRequest.Feedback) }
         BasicText(
             "Export saves your songs, likes, playlists and history to a file. To move to a new phone, copy that file and your download folder, then import and re-scan.",
             style = type.footnote.copy(color = colors.secondaryLabel),
@@ -411,7 +423,7 @@ private fun CountrySheet(request: SheetRequest.Countries, controller: SheetContr
     val colors = TuneRackTheme.colors
     val type = TuneRackTheme.typography
     Column {
-        BasicText("Spotify Chart Country", style = type.title3.copy(color = colors.label), modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+        BasicText(request.title, style = type.title3.copy(color = colors.label), modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
         LazyColumn(Modifier.heightIn(max = 460.dp)) {
             items(request.countries, key = { it.code }) { country ->
                 PressRow(onClick = { controller.dismiss(); request.onPick(country.code) }) {
@@ -460,6 +472,11 @@ private fun SheetHeader(track: Track) {
     Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.separator))
 }
 
+/** [ActionRow] for sheets defined in other files. */
+@Composable
+internal fun SheetActionRow(label: String, icon: ImageVector?, destructive: Boolean = false, onClick: () -> Unit) =
+    ActionRow(label, icon, destructive, onClick = onClick)
+
 @Composable
 private fun ActionRow(
     label: String,
@@ -475,6 +492,11 @@ private fun ActionRow(
         if (icon != null) TuneIcon(icon, tint, size = 22.dp)
     }
 }
+
+/** [PressRow] for sheets defined in other files. */
+@Composable
+internal fun SheetPressRow(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) =
+    PressRow(onClick = onClick, content = content)
 
 @Composable
 private fun PressRow(onClick: () -> Unit, horizontal: androidx.compose.ui.unit.Dp = 20.dp, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {

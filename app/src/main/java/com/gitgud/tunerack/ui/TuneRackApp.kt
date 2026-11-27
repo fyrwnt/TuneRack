@@ -1,5 +1,15 @@
 package com.gitgud.tunerack.ui
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import com.gitgud.tunerack.ui.components.LocalSharedTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.Crossfade
+import com.gitgud.tunerack.ui.components.rememberAccountActions
+import com.gitgud.tunerack.ui.components.LocalAccount
+import com.gitgud.tunerack.ui.tutorial.rememberTutorialController
+import com.gitgud.tunerack.ui.tutorial.TutorialOverlay
+import com.gitgud.tunerack.ui.tutorial.LocalTutorial
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -41,6 +51,7 @@ private val Tabs = listOf(
 )
 private const val SearchTab = 3
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TuneRackApp() {
     var selected by rememberSaveable { mutableIntStateOf(0) }
@@ -50,6 +61,7 @@ fun TuneRackApp() {
     val tabStates = rememberSaveableStateHolder()
 
     val sheets = remember { SheetController() }
+    val tutorial = rememberTutorialController()
     val downloads = rememberDownloadStarter()
     val player = LocalPlayerConnection.current
     LaunchedEffect(player) { player.messages.collect(sheets::flash) }
@@ -58,14 +70,21 @@ fun TuneRackApp() {
         LocalSheets provides sheets,
         LocalDownloads provides downloads,
         LocalLibraryTools provides rememberLibraryTools(sheets, downloads),
+        LocalTutorial provides tutorial,
+        LocalAccount provides rememberAccountActions(sheets),
     ) {
+        SharedTransitionLayout {
+        CompositionLocalProvider(LocalSharedTransition provides this) {
         Box(Modifier.fillMaxSize()) {
-            tabStates.SaveableStateProvider(selected) {
-                when (selected) {
-                    0 -> HomeScreen()
-                    1 -> ChartsScreen()
-                    2 -> LibraryScreen()
-                    else -> SearchScreen()
+            // Quick crossfade between tabs instead of an instant swap.
+            Crossfade(selected, animationSpec = tween(180), label = "tabs") { tab ->
+                tabStates.SaveableStateProvider(tab) {
+                    when (tab) {
+                        0 -> HomeScreen()
+                        1 -> ChartsScreen()
+                        2 -> LibraryScreen()
+                        else -> SearchScreen()
+                    }
                 }
             }
             BottomChrome(
@@ -75,10 +94,14 @@ fun TuneRackApp() {
                 onSelect = { selected = it },
                 onSearch = { selected = SearchTab },
                 onOpenPlayer = { playerOpen = true },
+                playerOpen = playerOpen && hasTrack,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
             NowPlayingSheet(visible = playerOpen && hasTrack, onDismiss = { playerOpen = false })
             SheetHost(sheets)
+            TutorialOverlay(tutorial)
+        }
+        }
         }
     }
 }

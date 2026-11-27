@@ -1,5 +1,10 @@
 package com.gitgud.tunerack.ui.screens
 
+import com.gitgud.tunerack.ui.components.nowPlayingArtwork
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
+import com.gitgud.tunerack.ui.tutorial.HelpButton
+import com.gitgud.tunerack.ui.tutorial.AutoTour
+import com.gitgud.tunerack.ui.tutorial.Tour
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -88,7 +93,8 @@ private val OnArtTertiary = Color(0x40F5F5F7)
 /** Full-screen player that slides up from the mini player; swipe down or press back to close. */
 @Composable
 fun NowPlayingSheet(visible: Boolean, onDismiss: () -> Unit) {
-    BackHandler(enabled = visible, onBack = onDismiss)
+    // Composed only while shown, so it registers after any screen's own back handling and wins.
+    if (visible) BackHandler(onBack = onDismiss)
     val density = LocalDensity.current
     val dismissDistance = with(density) { 160.dp.toPx() }
     val drag = remember { Animatable(0f) }
@@ -116,13 +122,13 @@ fun NowPlayingSheet(visible: Boolean, onDismiss: () -> Unit) {
                 )
                 .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         ) {
-            NowPlayingContent()
+            NowPlayingContent(this@AnimatedVisibility)
         }
     }
 }
 
 @Composable
-private fun NowPlayingContent() {
+private fun NowPlayingContent(visibility: androidx.compose.animation.AnimatedVisibilityScope) {
     val player = LocalPlayerConnection.current
     val state by player.state.collectAsStateWithLifecycle()
     val progress by player.progress().collectAsStateWithLifecycle(Progress(0, 0, 0))
@@ -156,27 +162,33 @@ private fun NowPlayingContent() {
                 .navigationBarsPadding()
                 .padding(horizontal = 28.dp),
         ) {
-            Box(
-                Modifier
-                    .padding(top = 8.dp)
-                    .align(Alignment.CenterHorizontally)
-                    .size(width = 38.dp, height = 5.dp)
-                    .background(OnArtTertiary, CircleShape),
-            )
+            Box(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .padding(top = 8.dp)
+                        .align(Alignment.TopCenter)
+                        .size(width = 38.dp, height = 5.dp)
+                        .background(OnArtTertiary, CircleShape),
+                )
+                HelpButton(Tour.Player, Modifier.align(Alignment.TopEnd).padding(top = 4.dp), tint = OnArtSecondary)
+            }
+            AutoTour(Tour.Player, delayMs = 900)
 
             if (showQueue) {
                 QueueView(Modifier.weight(1f))
             } else {
-                BigArtwork(track?.artworkUrl, state.isPlaying, Modifier.weight(1f))
+                BigArtwork(track?.artworkUrl, state.isPlaying, Modifier.weight(1f), visibility)
                 TrackTitle(track?.title.orEmpty(), state.error ?: track?.artist.orEmpty()) {
                     if (track != null) {
-                        LikeButton(track.toTrack())
-                        TransportButton(TuneIcons.More, 22.dp) { sheets.show(SheetRequest.Song(track.toTrack())) }
+                        Box(Modifier.tutorialTarget("player.like")) { LikeButton(track.toTrack()) }
+                        Box(Modifier.tutorialTarget("player.more")) {
+                            TransportButton(TuneIcons.More, 22.dp) { sheets.show(SheetRequest.Song(track.toTrack())) }
+                        }
                     }
                 }
             }
 
-            SeekBar(progress, onSeek = player::seekTo, modifier = Modifier.padding(top = 18.dp))
+            SeekBar(progress, onSeek = player::seekTo, modifier = Modifier.padding(top = 18.dp).tutorialTarget("player.seek"))
 
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 18.dp),
@@ -192,13 +204,19 @@ private fun NowPlayingContent() {
                 Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                ToggleButton(TuneIcons.Shuffle, active = state.shuffle, onClick = player::toggleShuffle)
-                ToggleButton(
-                    if (state.repeat == RepeatMode.One) TuneIcons.RepeatOne else TuneIcons.Repeat,
-                    active = state.repeat != RepeatMode.Off,
-                    onClick = player::cycleRepeat,
-                )
-                ToggleButton(TuneIcons.Queue, active = showQueue, onClick = { showQueue = !showQueue })
+                Box(Modifier.tutorialTarget("player.shuffle")) {
+                    ToggleButton(TuneIcons.Shuffle, active = state.shuffle, onClick = player::toggleShuffle)
+                }
+                Box(Modifier.tutorialTarget("player.repeat")) {
+                    ToggleButton(
+                        if (state.repeat == RepeatMode.One) TuneIcons.RepeatOne else TuneIcons.Repeat,
+                        active = state.repeat != RepeatMode.Off,
+                        onClick = player::cycleRepeat,
+                    )
+                }
+                Box(Modifier.tutorialTarget("player.queue")) {
+                    ToggleButton(TuneIcons.Queue, active = showQueue, onClick = { showQueue = !showQueue })
+                }
             }
         }
     }
@@ -206,7 +224,7 @@ private fun NowPlayingContent() {
 
 /** Apple Music detail: the cover sits full size while playing and settles back when paused. */
 @Composable
-private fun BigArtwork(url: String?, playing: Boolean, modifier: Modifier) {
+private fun BigArtwork(url: String?, playing: Boolean, modifier: Modifier, visibility: androidx.compose.animation.AnimatedVisibilityScope) {
     val scale by animateFloatAsState(if (playing) 1f else 0.84f, spring(dampingRatio = 0.7f, stiffness = 300f), label = "art")
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val side = minOf(maxWidth, maxHeight - 24.dp)
@@ -215,7 +233,7 @@ private fun BigArtwork(url: String?, playing: Boolean, modifier: Modifier) {
                 .graphicsLayer { scaleX = scale; scaleY = scale }
                 .softShadow(RoundedCornerShape(14.dp), elevation = 24.dp),
         ) {
-            Artwork(url, side, corner = 14.dp)
+            Artwork(url, side, corner = 14.dp, modifier = Modifier.nowPlayingArtwork(visibility))
         }
     }
 }

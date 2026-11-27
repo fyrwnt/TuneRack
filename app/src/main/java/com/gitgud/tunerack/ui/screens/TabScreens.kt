@@ -1,5 +1,8 @@
 package com.gitgud.tunerack.ui.screens
 
+import com.gitgud.tunerack.ui.components.AccountButton
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
+import com.gitgud.tunerack.ui.tutorial.Tour
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,14 +59,22 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val picks by viewModel.topPicks.collectAsStateWithLifecycle()
     val spotify by viewModel.spotifyTop.collectAsStateWithLifecycle()
     val youTube by viewModel.youTubeTop.collectAsStateWithLifecycle()
+    val reason by viewModel.picksReason.collectAsStateWithLifecycle()
+    val sheets = LocalSheets.current
 
-    LargeTitleScreen("Home") {
-        // Top Picks needs some listening first; until then it is simply not shown.
-        if (recent.isNotEmpty()) {
+    LargeTitleScreen(
+        "Home",
+        tour = Tour.Welcome,
+        trailing = { AccountButton { sheets.show(SheetRequest.Account) } },
+    ) {
+        // Top Picks needs something to go on (a play or a like); until then it is not shown.
+        reason?.let { why ->
             item(key = "top-picks") {
-                SectionHeader("Top Picks for You", showChevron = false, subtitle = "Because you played ${recent.first().title}")
+                SectionHeader("Top Picks for You", showChevron = false, subtitle = why)
                 HomeRow(picks, cardSize = 220.dp) { list, index -> player.playQueue(list, index) }
             }
+        }
+        if (recent.isNotEmpty()) {
             item(key = "recently-played") {
                 SectionHeader("Recently Played", showChevron = false)
                 HomeRow(recent) { list, index -> player.playQueue(list, index) }
@@ -77,11 +88,11 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             SectionHeader("Trending on YouTube", showChevron = false, subtitle = "Most viewed music videos, past 24 hours")
             HomeRow(youTube) { list, index -> player.playQueue(list, index) }
         }
-        if (recent.isEmpty()) {
+        if (reason == null) {
             item(key = "hint") {
                 EmptyMessage(
                     title = "Your picks start here",
-                    message = "Play a few songs and Top Picks will fill in with music like them.",
+                    message = "Play a few songs, or sign in to bring your YouTube likes, and Top Picks will fill in.",
                 )
             }
         }
@@ -123,11 +134,12 @@ fun SearchScreen(viewModel: SearchViewModel = viewModel()) {
     val downloadStates by LocalContext.current.tuneRack.downloads.states.collectAsStateWithLifecycle(emptyMap())
     val field = rememberTextFieldState()
 
-    LargeTitleScreen("Search") {
+    LargeTitleScreen("Search", tour = Tour.Search) {
         item(key = "field") {
             Row(
                 Modifier
                     .padding(horizontal = 20.dp, vertical = 6.dp)
+                    .tutorialTarget("search.field")
                     .fillMaxWidth()
                     .height(42.dp)
                     .background(colors.fill, RoundedCornerShape(12.dp))
@@ -183,6 +195,7 @@ fun SearchScreen(viewModel: SearchViewModel = viewModel()) {
                             isCurrent = playing.nowPlaying?.mediaId == track.id,
                             onMore = { sheets.show(SheetRequest.Song(track)) },
                             download = downloadStates[track.id],
+                            moreTarget = if (index == 0) "search.more" else null,
                             onClick = { player.playQueue(s.tracks, index) },
                         )
                     }

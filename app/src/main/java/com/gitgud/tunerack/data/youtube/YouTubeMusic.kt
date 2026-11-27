@@ -1,5 +1,7 @@
 package com.gitgud.tunerack.data.youtube
 
+import com.gitgud.tunerack.data.settings.pickByBitrate
+import android.util.Log
 import com.gitgud.tunerack.data.Track
 import com.gitgud.tunerack.data.charts.KworbParser
 import kotlinx.coroutines.Dispatchers
@@ -41,34 +43,46 @@ object YouTubeMusic {
      * Returns a direct audio URL for [videoId]. Blocking: called from ExoPlayer's loader thread.
      * URLs are cached until shortly before YouTube's `expire` time so seeks and replays are instant.
      */
-    fun resolveAudioUrl(videoId: String): String {
-        urlCache[videoId]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return it.url }
+    fun resolveAudioUrl(videoId: String, maxKbps: Int = Int.MAX_VALUE): String {
+        // Cached per quality, so changing the setting takes effect from the next song on.
+        val cacheKey = "$videoId@$maxKbps"
+        urlCache[cacheKey]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return it.url }
+        // The player and the next-song prefetch can ask at once: one lookup, the other waits for it.
+        synchronized(lookupLocks.computeIfAbsent(cacheKey) { Any() }) {
+            urlCache[cacheKey]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return it.url }
+            return lookUpAudioUrl(videoId, maxKbps, cacheKey)
+        }
+    }
 
+    private val lookupLocks = ConcurrentHashMap<String, Any>()
+
+    private fun lookUpAudioUrl(videoId: String, maxKbps: Int, cacheKey: String): String {
+        val started = System.currentTimeMillis()
         val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
         extractor.fetchPage()
-        val stream = extractor.audioStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl }
-            // Prefer the original track over dubbed ones, then the best bitrate; Opus beats AAC at equal rate.
-            .sortedWith(
-                compareByDescending<AudioStream> { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
-                    .thenByDescending { it.averageBitrate }
-                    .thenByDescending { it.format == MediaFormat.WEBMA_OPUS },
-            )
-            .firstOrNull()
-            ?: error("No playable audio stream for $videoId")
+        val stream = pickByBitrate(
+            originalAudio(extractor.audioStreams),
+            maxKbps,
+            kbps = { it.averageBitrate },
+            isOpus = { it.format == MediaFormat.WEBMA_OPUS },
+        ) ?: error("No playable audio stream for $videoId")
+        Log.d(LOG_TAG, "Streaming $videoId at ${stream.averageBitrate} kbps ${stream.format?.name} (cap $maxKbps), lookup ${System.currentTimeMillis() - started} ms")
 
         val url = stream.content
         val expireSeconds = Regex("[?&]expire=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
         val expiresAt = expireSeconds?.let { it * 1000 - 10 * 60 * 1000 } ?: (System.currentTimeMillis() + 60 * 60 * 1000)
-        urlCache[videoId] = CachedUrl(url, expiresAt)
+        urlCache[cacheKey] = CachedUrl(url, expiresAt)
         return url
     }
 
-    /** Songs YouTube suggests next to [videoId], for "Top Picks". Skips long mixes and live streams. */
+    /**
+     * Songs like [videoId], for "Top Picks": the song's YouTube Music radio ("RDAMVM" mix), which
+     * is music only. YouTube's general related videos also mix in news and vlogs.
+     */
     suspend fun related(videoId: String): List<Track> = withContext(Dispatchers.IO) {
-        val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+        val extractor = ServiceList.YouTube.getPlaylistExtractor("https://www.youtube.com/watch?v=$videoId&list=RDAMVM$videoId")
         extractor.fetchPage()
-        extractor.relatedItems?.items.orEmpty()
+        extractor.initialPage.items
             .filterIsInstance<StreamInfoItem>()
             .filter { it.duration in 60..600 }
             .mapNotNull { it.toTrack() }
@@ -87,22 +101,30 @@ object YouTubeMusic {
      * Stream to save for offline use. Prefers AAC in M4A (plays in every music player and can be
      * tagged); falls back to the best other progressive audio stream. Blocking.
      */
-    fun resolveDownload(videoId: String): DownloadSource {
+    fun resolveDownload(videoId: String, maxKbps: Int = Int.MAX_VALUE): DownloadSource {
         val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
         extractor.fetchPage()
-        val candidates = extractor.audioStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl }
-            .filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
-        val stream = candidates.filter { it.format == MediaFormat.M4A }.maxByOrNull { it.averageBitrate }
+        val candidates = originalAudio(extractor.audioStreams)
+        val stream = pickByBitrate(candidates.filter { it.format == MediaFormat.M4A }, maxKbps, { it.averageBitrate }, { false })
             ?: candidates.maxByOrNull { it.averageBitrate }
             ?: error("No downloadable audio for $videoId")
+        Log.d(LOG_TAG, "Downloading $videoId at ${stream.averageBitrate} kbps ${stream.format?.name} (cap $maxKbps)")
         val format = stream.format ?: MediaFormat.M4A
         return DownloadSource(stream.content, format.mimeType, format.suffix)
     }
 
     fun forget(videoId: String) {
-        urlCache.remove(videoId)
+        urlCache.keys.removeAll { it.startsWith("$videoId@") }
     }
+
+    /** Directly playable streams in the song's original language (dubbed tracks dropped if possible). */
+    private fun originalAudio(streams: List<AudioStream>): List<AudioStream> {
+        val playable = streams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl }
+        val original = playable.filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
+        return original.ifEmpty { playable }
+    }
+
+    private const val LOG_TAG = "TuneRackAudio"
 
     private fun StreamInfoItem.toTrack(): Track? {
         val id = runCatching { YoutubeStreamLinkHandlerFactory.getInstance().getId(url) }.getOrNull() ?: return null

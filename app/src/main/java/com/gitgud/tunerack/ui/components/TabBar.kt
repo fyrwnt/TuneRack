@@ -1,5 +1,9 @@
 package com.gitgud.tunerack.ui.components
 
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +55,7 @@ fun BottomChrome(
     onSelect: (Int) -> Unit,
     onSearch: () -> Unit,
     onOpenPlayer: () -> Unit,
+    playerOpen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -60,7 +65,7 @@ fun BottomChrome(
             .padding(start = 16.dp, end = 16.dp, bottom = ChromeGap),
         verticalArrangement = Arrangement.spacedBy(ChromeGap),
     ) {
-        MiniPlayer(onOpenPlayer)
+        MiniPlayer(onOpenPlayer, playerOpen)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             TabCapsule(tabs, if (searchSelected) -1 else selectedIndex, onSelect, Modifier.weight(1f))
             SearchButton(searchSelected, onSearch)
@@ -85,6 +90,7 @@ private fun TabCapsule(tabs: List<TabItem>, selectedIndex: Int, onSelect: (Int) 
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .tutorialTarget("tab.${item.label.lowercase()}")
                     .pressable(role = Role.Tab, pressedScale = 0.92f) { onSelect(index) }
                     .background(pill, CircleShape),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -109,6 +115,7 @@ private fun SearchButton(selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(BarHeight)
+            .tutorialTarget("tab.search")
             .glassSurface(CircleShape)
             .pressable(role = Role.Tab, pressedScale = 0.9f, onClick = onClick)
             .padding(4.dp)
@@ -121,7 +128,7 @@ private fun SearchButton(selected: Boolean, onClick: () -> Unit) {
 
 /** Apple Music style mini player pill; shows "Not Playing" until something is loaded. */
 @Composable
-private fun MiniPlayer(onOpen: () -> Unit) {
+private fun MiniPlayer(onOpen: () -> Unit, playerOpen: Boolean) {
     val colors = TuneRackTheme.colors
     val connection = LocalPlayerConnection.current
     val state by connection.state.collectAsStateWithLifecycle()
@@ -130,12 +137,14 @@ private fun MiniPlayer(onOpen: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .height(MiniPlayerHeight)
+            .tutorialTarget("miniPlayer")
             .then(if (track != null) Modifier.pressable(pressedScale = 0.98f, onClick = onOpen) else Modifier)
             .glassSurface(RoundedCornerShape(18.dp))
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(track?.artworkUrl, 40.dp, corner = 8.dp)
+        // Hidden while the full player is open: its cover "is" this one, grown (shared element).
+        MiniArtwork(track?.artworkUrl, visible = !playerOpen)
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             BasicText(
                 track?.title ?: "Not Playing",
@@ -178,6 +187,15 @@ private fun MiniPlayer(onOpen: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             TuneIcon(TuneIcons.Forward, if (state.hasNext) colors.label else colors.tertiaryLabel, size = 24.dp)
+        }
+    }
+}
+
+@Composable
+private fun MiniArtwork(url: String?, visible: Boolean) {
+    Box(Modifier.size(40.dp)) {
+        AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
+            Artwork(url, 40.dp, corner = 8.dp, modifier = Modifier.nowPlayingArtwork(this))
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.gitgud.tunerack
 
+import com.gitgud.tunerack.data.settings.AudioSettings
+import com.gitgud.tunerack.data.youtube.YouTubeAccount
 import android.app.Application
 import android.content.Context
 import coil3.ImageLoader
@@ -34,9 +36,13 @@ class TuneRackApplication : Application(), SingletonImageLoader.Factory {
     /** The local library; Room opens the database lazily, off the main thread. */
     val library: LibraryRepository by lazy { LibraryRepository(database.dao()) }
 
-    val downloads: DownloadRepository by lazy { DownloadRepository(this, database.dao(), httpClient) }
+    val audioSettings: AudioSettings by lazy { AudioSettings(this) }
+
+    val downloads: DownloadRepository by lazy { DownloadRepository(this, database.dao(), httpClient, audioSettings) }
 
     val charts: ChartRepository by lazy { ChartRepository(this, httpClient, database.dao()) }
+
+    val youTubeAccount: YouTubeAccount by lazy { YouTubeAccount(this, httpClient, database.dao()) }
 
     override fun onCreate() {
         super.onCreate()

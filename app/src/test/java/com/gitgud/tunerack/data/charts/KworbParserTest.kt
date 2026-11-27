@@ -77,4 +77,38 @@ class KworbParserTest {
         assertEquals(listOf("global", "ar", "id"), countries.map { it.code })
         assertEquals("Indonesia", countries.last().name)
     }
+
+    @Test
+    fun `youtube country daily`() {
+        val chart = KworbParser.parse(ChartSource(ChartKind.YouTubeDaily, "id"), fixture("youtube_id_daily.html"))
+        assertEquals(5, chart.entries.size)
+        val first = chart.entries.first()
+        assertEquals("Denny Caknan", first.artist)
+        assertEquals("Negoro Angin", first.title)
+        assertEquals("+3", first.change)
+        assertEquals(2_556_126L, first.plays)
+        assertNull(first.videoId)
+        assertEquals("yt:denny caknan - negoro angin", first.matchKey)
+    }
+
+    @Test
+    fun `youtube country weekly`() {
+        val chart = KworbParser.parse(ChartSource(ChartKind.YouTubeWeekly, "us"), fixture("youtube_us_weekly.html"))
+        assertEquals("2026/11/12", chart.period)
+        assertEquals("Ella Langley", chart.entries[0].artist)
+        assertEquals("Choosin' Texas", chart.entries[0].title)
+        assertEquals(5_045_043L, chart.entries[0].plays)
+    }
+
+    @Test
+    fun `youtube countries start with global`() {
+        val countries = KworbParser.parseYouTubeCountries(fixture("youtube_countries.html"))
+        assertEquals(listOf("global", "in", "id", "mx", "tr"), countries.map { it.code })
+    }
+
+    @Test
+    fun `entries with a video id need no match`() {
+        val chart = KworbParser.parse(ChartSource(ChartKind.YouTube), fixture("youtube.html"))
+        assertNull(chart.entries.first().matchKey)
+    }
 }

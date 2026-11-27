@@ -6,16 +6,22 @@ import org.jsoup.nodes.Element
 enum class ChartKind {
     SpotifyDaily,
     SpotifyWeekly,
+
+    /** Global: most viewed music videos in the past 24 hours (kworb has no global song chart). */
     YouTube,
+    YouTubeDaily,
+    YouTubeWeekly,
 }
 
-/** A chart page: kind plus Spotify country code ("global", "us", "id", ...). YouTube is global only. */
+/** A chart page: kind plus country code ("global", "us", "id", ...). */
 data class ChartSource(val kind: ChartKind, val country: String = GLOBAL) {
     val path: String
         get() = when (kind) {
             ChartKind.SpotifyDaily -> "spotify/country/${country}_daily.html"
             ChartKind.SpotifyWeekly -> "spotify/country/${country}_weekly.html"
             ChartKind.YouTube -> "youtube/"
+            ChartKind.YouTubeDaily -> "youtube/insights/${country}_daily.html"
+            ChartKind.YouTubeWeekly -> "youtube/insights/$country.html"
         }
 
     val cacheName: String get() = if (kind == ChartKind.YouTube) kind.name else "${kind.name}-$country"
@@ -41,7 +47,11 @@ data class ChartEntry(
     val videoId: String? = null,
     /** Daily/weekly streams or 24h views. */
     val plays: Long,
-)
+) {
+    /** Key for the saved YouTube Music match; null when the entry already is a YouTube video. */
+    val matchKey: String?
+        get() = spotifyTrackId ?: if (videoId == null) "yt:${artist.lowercase()} - ${title.lowercase()}" else null
+}
 
 data class Chart(val source: ChartSource, val period: String, val entries: List<ChartEntry>)
 
@@ -51,6 +61,35 @@ object KworbParser {
     fun parse(source: ChartSource, html: String): Chart = when (source.kind) {
         ChartKind.SpotifyDaily, ChartKind.SpotifyWeekly -> parseSpotify(source, html)
         ChartKind.YouTube -> parseYouTube(source, html)
+        ChartKind.YouTubeDaily, ChartKind.YouTubeWeekly -> parseYouTubeCountry(source, html)
+    }
+
+    /** kworb's per-country YouTube song charts: plain "Artist - Title" rows, no links. */
+    private fun parseYouTubeCountry(source: ChartSource, html: String): Chart {
+        val document = Jsoup.parse(html)
+        // Weekly: "YouTube Indonesia - Week ending 2026/10/01 | Daily" -> "2026/10/01"; daily pages carry no date.
+        val period = document.selectFirst("span.pagetitle")?.text()
+            ?.substringBefore('|')?.substringAfter("Week ending", "")?.trim().orEmpty()
+        val entries = document.select("tbody > tr").mapNotNull { row ->
+            val cells = row.select("> td")
+            if (cells.size < 4) return@mapNotNull null
+            val rank = cells[0].text().toIntOrNull() ?: return@mapNotNull null
+            val (artist, title) = splitVideoTitle(cells[2].text())
+            // Weekly rows have Wks/Pk/(x?) columns before the streams; daily rows go straight to them.
+            val plays = if (cells.size >= 7) cells[6] else cells[3]
+            ChartEntry(rank, cells[1].text(), title, artist, plays = plays.number())
+        }
+        return Chart(source, period, entries)
+    }
+
+    /** Countries with YouTube charts, from kworb's YouTube countries page, with Global first. */
+    fun parseYouTubeCountries(html: String): List<ChartCountry> {
+        val countries = Jsoup.parse(html).select("tr").mapNotNull { row ->
+            val link = row.selectFirst("a[href~=^[a-z]{2}\\.html$]") ?: return@mapNotNull null
+            val name = row.selectFirst("td")?.text()?.trim().orEmpty()
+            if (name.isEmpty()) null else ChartCountry(link.attr("href").removeSuffix(".html"), name)
+        }.distinctBy { it.code }.sortedBy { it.name }
+        return listOf(ChartCountry(ChartSource.GLOBAL, "Global")) + countries
     }
 
     private fun parseSpotify(source: ChartSource, html: String): Chart {

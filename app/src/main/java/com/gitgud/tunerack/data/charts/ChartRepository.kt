@@ -41,7 +41,12 @@ class ChartRepository(
 
     /** Countries with Spotify charts; the list barely changes, so it is refreshed weekly. */
     suspend fun countries(): List<ChartCountry> = withContext(Dispatchers.IO) {
-        KworbParser.parseCountries(cached("countries.html", "spotify/", 7 * 24 * MAX_AGE_MS / 12, refresh = false))
+        KworbParser.parseCountries(cached("countries.html", "spotify/", WEEK_MS, refresh = false))
+    }
+
+    /** Countries with YouTube charts, refreshed weekly too. */
+    suspend fun youTubeCountries(): List<ChartCountry> = withContext(Dispatchers.IO) {
+        KworbParser.parseYouTubeCountries(cached("youtube-countries.html", "youtube/insights/", WEEK_MS, refresh = false))
     }
 
     /** Page from disk if younger than [maxAge], else from kworb (falling back to a stale copy). */
@@ -60,7 +65,7 @@ class ChartRepository(
 
     /** Replaces the saved match for a Spotify chart entry with the user's choice. */
     suspend fun setMatch(entry: ChartEntry, track: Track) {
-        val spotifyId = entry.spotifyTrackId ?: return
+        val spotifyId = entry.matchKey ?: return
         dao.upsertChartMatch(
             ChartMatchEntity(spotifyId, track.id, track.title, track.artist, track.durationSeconds, track.artworkUrl, System.currentTimeMillis()),
         )
@@ -80,7 +85,7 @@ class ChartRepository(
     /** The playable song for an entry: YouTube entries directly, Spotify ones via a saved or new match. */
     suspend fun trackFor(entry: ChartEntry): Track? {
         entry.videoId?.let { return youTubeTrack(entry, it) }
-        val spotifyId = entry.spotifyTrackId ?: return null
+        val spotifyId = entry.matchKey ?: return null
         dao.chartMatch(spotifyId)?.let { return Track(it.videoId, it.title, it.artist, it.durationSeconds, it.artworkUrl) }
         return match(entry)
     }
@@ -88,11 +93,11 @@ class ChartRepository(
     /** Matches the given Spotify entries in the background, a few searches at a time. */
     suspend fun matchAll(entries: List<ChartEntry>) = coroutineScope {
         val gate = Semaphore(4)
-        entries.filter { it.spotifyTrackId != null }
+        entries.filter { it.matchKey != null }
             .map { entry ->
                 async {
                     gate.withPermit {
-                        if (dao.chartMatch(entry.spotifyTrackId!!) == null) runCatching { match(entry) }
+                        if (dao.chartMatch(entry.matchKey!!) == null) runCatching { match(entry) }
                     }
                 }
             }
@@ -103,7 +108,7 @@ class ChartRepository(
         val results = YouTubeMusic.searchSongs("${entry.artist} ${entry.title}")
         val best = ChartMatcher.best(entry, results) ?: return null
         dao.upsertChartMatch(
-            ChartMatchEntity(entry.spotifyTrackId!!, best.id, best.title, best.artist, best.durationSeconds, best.artworkUrl, System.currentTimeMillis()),
+            ChartMatchEntity(entry.matchKey!!, best.id, best.title, best.artist, best.durationSeconds, best.artworkUrl, System.currentTimeMillis()),
         )
         return best
     }
@@ -113,6 +118,7 @@ class ChartRepository(
 
     private companion object {
         const val MAX_AGE_MS = 12 * 60 * 60 * 1000L
+        const val WEEK_MS = 7 * 24 * 60 * 60 * 1000L
     }
 }
 

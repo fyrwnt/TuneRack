@@ -1,5 +1,7 @@
 package com.gitgud.tunerack.ui.screens
 
+import com.gitgud.tunerack.ui.tutorial.tutorialTarget
+import com.gitgud.tunerack.ui.tutorial.Tour
 import android.app.Application
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -82,9 +84,16 @@ class ChartsViewModel(application: Application) : AndroidViewModel(application) 
     private val _countries = MutableStateFlow<List<ChartCountry>>(emptyList())
     val countries: StateFlow<List<ChartCountry>> = _countries.asStateFlow()
 
+    private val _youTubeCountries = MutableStateFlow<List<ChartCountry>>(emptyList())
+    val youTubeCountries: StateFlow<List<ChartCountry>> = _youTubeCountries.asStateFlow()
+
     fun loadCountries() {
-        if (_countries.value.isNotEmpty()) return
-        viewModelScope.launch { runCatching { repository.countries() }.onSuccess { _countries.value = it } }
+        if (_countries.value.isEmpty()) {
+            viewModelScope.launch { runCatching { repository.countries() }.onSuccess { _countries.value = it } }
+        }
+        if (_youTubeCountries.value.isEmpty()) {
+            viewModelScope.launch { runCatching { repository.youTubeCountries() }.onSuccess { _youTubeCountries.value = it } }
+        }
     }
 
     val matches: StateFlow<Map<String, Track>> =
@@ -131,22 +140,30 @@ class ChartsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun trackOf(entry: ChartEntry, known: Map<String, Track>): Track? =
         entry.videoId?.let { Track(it, entry.title, entry.artist, 0, "https://i.ytimg.com/vi/$it/hqdefault.jpg") }
-            ?: entry.spotifyTrackId?.let(known::get)
+            ?: entry.matchKey?.let(known::get)
 }
 
 @Composable
 fun ChartsScreen(viewModel: ChartsViewModel = viewModel()) {
     var source by rememberSaveable { mutableIntStateOf(0) }
     var period by rememberSaveable { mutableIntStateOf(0) }
-    var country by rememberSaveable { mutableStateOf(ChartSource.GLOBAL) }
-    val kind = when {
-        source == 1 -> ChartSource(ChartKind.YouTube)
-        period == 1 -> ChartSource(ChartKind.SpotifyWeekly, country)
-        else -> ChartSource(ChartKind.SpotifyDaily, country)
+    // Each source remembers its own country; their country lists differ.
+    var spotifyCountry by rememberSaveable { mutableStateOf(ChartSource.GLOBAL) }
+    var youTubeCountry by rememberSaveable { mutableStateOf(ChartSource.GLOBAL) }
+    val country = if (source == 0) spotifyCountry else youTubeCountry
+    // null: YouTube has no worldwide weekly chart.
+    val kind: ChartSource? = when {
+        source == 0 && period == 1 -> ChartSource(ChartKind.SpotifyWeekly, country)
+        source == 0 -> ChartSource(ChartKind.SpotifyDaily, country)
+        country == ChartSource.GLOBAL -> if (period == 0) ChartSource(ChartKind.YouTube) else null
+        period == 1 -> ChartSource(ChartKind.YouTubeWeekly, country)
+        else -> ChartSource(ChartKind.YouTubeDaily, country)
     }
-    LaunchedEffect(kind) { viewModel.load(kind) }
+    LaunchedEffect(kind) { kind?.let(viewModel::load) }
     LaunchedEffect(Unit) { viewModel.loadCountries() }
-    val countries by viewModel.countries.collectAsStateWithLifecycle()
+    val spotifyCountries by viewModel.countries.collectAsStateWithLifecycle()
+    val youTubeCountries by viewModel.youTubeCountries.collectAsStateWithLifecycle()
+    val countries = if (source == 0) spotifyCountries else youTubeCountries
     val countryName = countries.firstOrNull { it.code == country }?.name ?: if (country == ChartSource.GLOBAL) "Global" else country.uppercase()
 
     val charts by viewModel.charts.collectAsStateWithLifecycle()
@@ -157,30 +174,33 @@ fun ChartsScreen(viewModel: ChartsViewModel = viewModel()) {
     val sheets = LocalSheets.current
     val colors = TuneRackTheme.colors
 
-    LargeTitleScreen("Charts") {
+    LargeTitleScreen("Charts", tour = Tour.Charts) {
         item(key = "source") {
             SegmentedControl(
                 options = listOf("Spotify", "YouTube"),
                 selected = source,
                 onSelect = { source = it },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).tutorialTarget("charts.source"),
             )
         }
-        if (source == 0) {
+        run {
             item(key = "period") {
                 SegmentedControl(
                     options = listOf("Daily", "Weekly"),
                     selected = period,
                     onSelect = { period = it },
-                    modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 4.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 4.dp).tutorialTarget("charts.period"),
                 )
             }
             item(key = "country") {
                 Row(
                     Modifier
                         .padding(horizontal = 20.dp, vertical = 6.dp)
+                        .tutorialTarget("charts.country")
                         .pressable(pressedScale = 0.97f) {
-                            if (countries.isNotEmpty()) sheets.show(SheetRequest.Countries(countries, country) { country = it })
+                            if (countries.isNotEmpty()) {
+                                sheets.show(SheetRequest.Countries(if (source == 0) "Spotify Chart Country" else "YouTube Chart Country", countries, country) { if (source == 0) spotifyCountry = it else youTubeCountry = it })
+                            }
                         }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -196,6 +216,15 @@ fun ChartsScreen(viewModel: ChartsViewModel = viewModel()) {
             }
         }
 
+        if (kind == null) {
+            item(key = "no-global-weekly") {
+                EmptyMessage(
+                    "No worldwide weekly chart",
+                    "YouTube's weekly charts are per country. Pick a country, or switch to Daily for the global top videos.",
+                )
+            }
+            return@LargeTitleScreen
+        }
         when (val state = charts[kind] ?: ChartState.Loading) {
             ChartState.Loading -> {
                 item(key = "header-loading") { SectionHeader(if (kind.kind == ChartKind.YouTube) "Top Music Videos" else "Top Songs", showChevron = false) }
@@ -221,6 +250,8 @@ fun ChartsScreen(viewModel: ChartsViewModel = viewModel()) {
                             ChartKind.SpotifyDaily -> "$countryName · Daily · ${chart.period}"
                             ChartKind.SpotifyWeekly -> "$countryName · Week of ${chart.period}"
                             ChartKind.YouTube -> "Global · Past 24 hours · ${chart.period}"
+                            ChartKind.YouTubeDaily -> "$countryName · Daily"
+                            ChartKind.YouTubeWeekly -> "$countryName · Week ending ${chart.period}"
                         },
                     )
                 }
@@ -235,6 +266,7 @@ fun ChartsScreen(viewModel: ChartsViewModel = viewModel()) {
                             loading = resolving == kind to entry.rank,
                             onMore = track?.let { t -> { sheets.show(SheetRequest.Song(t, chartEntry = entry)) } },
                             onClick = { viewModel.play(kind, entry, player) },
+                            first = entry == chart.entries.first(),
                         )
                     }
                 }
@@ -259,6 +291,7 @@ private fun ChartEntryRow(
     loading: Boolean,
     onMore: (() -> Unit)?,
     onClick: () -> Unit,
+    first: Boolean = false,
 ) {
     val colors = TuneRackTheme.colors
     val type = TuneRackTheme.typography
@@ -271,6 +304,7 @@ private fun ChartEntryRow(
             .background(bg)
             .clickable(interaction, indication = null, onClick = onClick)
             .height(68.dp)
+            .then(if (first) Modifier.tutorialTarget("charts.row") else Modifier)
             .padding(start = 16.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -300,7 +334,10 @@ private fun ChartEntryRow(
             )
         }
         Box(
-            Modifier.size(40.dp).then(if (onMore != null) Modifier.pressable(onClick = onMore) else Modifier),
+            Modifier
+                .size(40.dp)
+                .then(if (first) Modifier.tutorialTarget("charts.more") else Modifier)
+                .then(if (onMore != null) Modifier.pressable(onClick = onMore) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             TuneIcon(TuneIcons.More, if (onMore != null) colors.secondaryLabel else colors.tertiaryLabel, size = 20.dp)

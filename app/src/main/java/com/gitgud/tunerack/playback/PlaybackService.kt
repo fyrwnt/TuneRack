@@ -1,5 +1,6 @@
 package com.gitgud.tunerack.playback
 
+import androidx.media3.exoplayer.DefaultLoadControl
 import android.os.Bundle
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -67,7 +68,7 @@ class PlaybackService : MediaSessionService() {
                 val local = tuneRack.downloads.localUriBlocking(id)
                 val remote = if (local == null) {
                     try {
-                        YouTubeMusic.resolveAudioUrl(id)
+                        YouTubeMusic.resolveAudioUrl(id, tuneRack.audioSettings.streamCapKbps())
                     } catch (e: ExtractionException) {
                         throw e.toPlaybackException()
                     }
@@ -90,6 +91,12 @@ class PlaybackService : MediaSessionService() {
                 /* handleAudioFocus = */ true,
             )
             .setHandleAudioBecomingNoisy(true)
+            // Start after 1 s of audio instead of Media3's 2.5 s default (music, not video: tiny data).
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS, DefaultLoadControl.DEFAULT_MAX_BUFFER_MS, 1_000, 2_000)
+                    .build(),
+            )
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
@@ -123,6 +130,7 @@ class PlaybackService : MediaSessionService() {
                 retried.clear()
                 recordedCurrent = false
                 saveQueue(player)
+                prefetchNext(player)
             }
 
             // History: count a song once it actually starts playing (not when merely queued or skipped past).
@@ -147,6 +155,7 @@ class PlaybackService : MediaSessionService() {
                 if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
                 if (player.shuffleModeEnabled && !insertingIntoShuffle) applyBalancedShuffle(player, force = false)
                 saveQueue(player)
+                prefetchNext(player)
             }
         })
 
@@ -209,6 +218,19 @@ class PlaybackService : MediaSessionService() {
     }
 
     private var consecutiveSkips = 0
+
+    /**
+     * Looks up the next song's stream while this one plays (~0.7-1 s per lookup), so skipping
+     * or moving on to it starts as fast as replaying a song. Downloaded songs need no lookup.
+     */
+    private fun prefetchNext(player: Player) {
+        val index = player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET } ?: return
+        val id = player.getMediaItemAt(index).mediaId
+        val cap = tuneRack.audioSettings.streamCapKbps()
+        scope.launch {
+            runCatching { if (tuneRack.downloads.localUriBlocking(id) == null) YouTubeMusic.resolveAudioUrl(id, cap) }
+        }
+    }
 
     /** Sends a short message to the app's UI (shown as a HUD), e.g. when a song is skipped. */
     private fun announce(message: String) {
