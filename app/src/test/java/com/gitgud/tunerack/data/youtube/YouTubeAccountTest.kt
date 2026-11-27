@@ -17,6 +17,23 @@ class YouTubeAccountTest {
     @Test
     fun `auto-generated topic channels become the artist name`() {
         assertEquals("Coldplay", YouTubeAccount.cleanArtist("Coldplay - Topic"))
-        assertEquals("ColdplayVEVO", YouTubeAccount.cleanArtist("ColdplayVEVO"))
+        assertEquals("Coldplay", YouTubeAccount.cleanArtist("ColdplayVEVO"))
+    }
+
+    @Test
+    fun `liked videos become clean songs`() {
+        val owl = YouTubeAccount.songFromVideo("a", "Owl City - To The Sky (Official Music Video)", "OwlCityVEVO", 219, null)!!
+        assertEquals("Owl City", owl.artist)
+        assertEquals("To The Sky", owl.title)
+        val topic = YouTubeAccount.songFromVideo("b", "Hymn for the Weekend", "Coldplay - Topic", 259, null)!!
+        assertEquals("Coldplay", topic.artist)
+        assertEquals("Hymn for the Weekend", topic.title)
+        val plain = YouTubeAccount.songFromVideo("c", "MEME TILL YOU'RE DEAD", "Cyranek", 103, null)!!
+        assertEquals("Cyranek", plain.artist)
+    }
+
+    @Test
+    fun `invisible titles are skipped`() {
+        assertEquals(null, YouTubeAccount.songFromVideo("d", "\u3164\u3164 \u3164", "someone", 100, null))
     }
 }

@@ -130,6 +130,10 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertLike(like: LikeEntity)
 
+    /** Removes likes whose song has no visible title (left by earlier imports). */
+    @Query("DELETE FROM likes WHERE songId IN (:ids)")
+    suspend fun deleteLikes(ids: List<String>)
+
     @Query("DELETE FROM likes WHERE songId = :songId")
     suspend fun deleteLike(songId: String)
 

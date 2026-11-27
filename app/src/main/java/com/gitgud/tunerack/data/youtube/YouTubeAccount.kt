@@ -1,5 +1,7 @@
 package com.gitgud.tunerack.data.youtube
 
+import com.gitgud.tunerack.data.charts.KworbParser
+import com.gitgud.tunerack.data.hasVisibleText
 import android.accounts.Account
 import android.app.PendingIntent
 import android.content.Context
@@ -158,17 +160,23 @@ class YouTubeAccount(
                     val item = items.getJSONObject(i)
                     val snippet = item.optJSONObject("snippet") ?: continue
                     if (snippet.optString("categoryId") != MUSIC_CATEGORY) continue
-                    liked += Track(
+                    val duration = parseDuration(item.optJSONObject("contentDetails")?.optString("duration"))
+                    // Very long uploads (mixes, streams) aren't songs.
+                    if (duration > MAX_SONG_SECONDS) continue
+                    liked += songFromVideo(
                         id = item.getString("id"),
-                        title = snippet.optString("title"),
-                        artist = cleanArtist(snippet.optString("channelTitle")),
-                        durationSeconds = parseDuration(item.optJSONObject("contentDetails")?.optString("duration")),
+                        rawTitle = snippet.optString("title"),
+                        channel = snippet.optString("channelTitle"),
+                        durationSeconds = duration,
                         artworkUrl = snippet.optJSONObject("thumbnails")?.let(::bestThumbnail),
-                    )
+                    ) ?: continue
                 }
             }
             page = json.optString("nextPageToken").ifEmpty { null }
         } while (page != null && liked.size < MAX_ITEMS)
+
+        // Earlier imports kept blank-title videos; clear those likes now that they are filtered out.
+        dao.deleteLikes(dao.allSongs().filter { !it.title.hasVisibleText() }.map { it.id })
 
         // YouTube lists newest first; keep that order in the library's "recently added".
         val newest = System.currentTimeMillis()
@@ -216,7 +224,7 @@ class YouTubeAccount(
                     val owner = snippet.optString("videoOwnerChannelTitle")
                     // Deleted and private videos come back without an owner.
                     if (owner.isEmpty()) continue
-                    songs += Track(videoId, snippet.optString("title"), cleanArtist(owner), 0, snippet.optJSONObject("thumbnails")?.let(::bestThumbnail))
+                    songs += songFromVideo(videoId, snippet.optString("title"), owner, 0, snippet.optJSONObject("thumbnails")?.let(::bestThumbnail)) ?: continue
                 }
             }
             page = json.optString("nextPageToken").ifEmpty { null }
@@ -293,7 +301,22 @@ class YouTubeAccount(
         private const val KEY_PLAYLISTS = "playlists"
 
         /** "Coldplay - Topic" (YouTube's auto-generated artist channels) -> "Coldplay". */
-        internal fun cleanArtist(channel: String): String = channel.removeSuffix(" - Topic").trim()
+        private const val MAX_SONG_SECONDS = 15 * 60
+
+        /** "Coldplay - Topic" / "ColdplayVEVO" (YouTube's artist channels) -> "Coldplay". */
+        internal fun cleanArtist(channel: String): String = channel.removeSuffix(" - Topic").removeSuffix("VEVO").trim()
+
+        /**
+         * A song from a liked or playlisted video. Auto-generated "- Topic" uploads already carry
+         * clean titles; other videos are "Artist - Song (Official Video)" and get split like charts.
+         * Null for titles that render as nothing.
+         */
+        internal fun songFromVideo(id: String, rawTitle: String, channel: String, durationSeconds: Long, artworkUrl: String?): Track? {
+            if (!rawTitle.hasVisibleText()) return null
+            if (channel.endsWith(" - Topic")) return Track(id, rawTitle, cleanArtist(channel), durationSeconds, artworkUrl)
+            val (artist, title) = KworbParser.splitVideoTitle(rawTitle)
+            return Track(id, title, artist.ifEmpty { cleanArtist(channel) }, durationSeconds, artworkUrl)
+        }
 
         /** ISO 8601 duration ("PT4M19S", "PT1H2M") in seconds; 0 when missing. */
         internal fun parseDuration(iso: String?): Long {

@@ -1,5 +1,7 @@
 package com.gitgud.tunerack.ui.screens
 
+import kotlinx.coroutines.flow.collectLatest
+import com.gitgud.tunerack.data.hasVisibleText
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,7 +28,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application.tuneRack
 
     val recent: StateFlow<List<Track>> =
-        app.library.recentlyPlayed().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        app.library.recentlyPlayed().map { list -> list.filter { it.title.hasVisibleText() } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _topPicks = MutableStateFlow<List<Track>?>(null)
     val topPicks: StateFlow<List<Track>?> = _topPicks
@@ -50,15 +52,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             // Picks follow the most recently played song.
             // Picks follow the last song played; before any listening (e.g. right after importing
             // from YouTube), they follow the most recent like instead.
-            combine(app.library.recentlyPlayed(1), app.library.likedSongs) { played, liked ->
-                played.firstOrNull()?.let { it to "Because you played ${it.title}" }
-                    ?: liked.firstOrNull()?.let { it to "Because you liked ${it.title}" }
-            }.distinctUntilChanged { a, b -> a?.first?.id == b?.first?.id }.collect { seed ->
-                _picksReason.value = seed?.second
-                _topPicks.value = if (seed == null) emptyList() else null
-                if (seed != null) {
-                    _topPicks.value = runCatching { YouTubeMusic.related(seed.first.id).take(12) }.getOrDefault(emptyList())
+            // A few candidates, newest first: a video with no YouTube Music radio (a vlog, a long
+            // mix) falls through to the next song instead of leaving the row empty.
+            combine(app.library.recentlyPlayed(3), app.library.likedSongs) { played, liked ->
+                (played.map { it to "Because you played ${it.title}" } + liked.take(3).map { it to "Because you liked ${it.title}" })
+                    .filter { it.first.title.hasVisibleText() }
+                    .distinctBy { it.first.id }
+            }.distinctUntilChanged { a, b -> a.map { it.first.id } == b.map { it.first.id } }.collectLatest { seeds ->
+                _picksReason.value = seeds.firstOrNull()?.second
+                _topPicks.value = if (seeds.isEmpty()) emptyList() else null
+                for ((seed, reason) in seeds) {
+                    val picks = runCatching { YouTubeMusic.related(seed.id).take(12) }.getOrDefault(emptyList())
+                    if (picks.isNotEmpty()) {
+                        _picksReason.value = reason
+                        _topPicks.value = picks
+                        return@collectLatest
+                    }
                 }
+                _topPicks.value = emptyList()
             }
         }
         viewModelScope.launch {

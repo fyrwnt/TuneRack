@@ -32,3 +32,9 @@ fun MediaItem.toTrack(): Track = Track(
     durationSeconds = (mediaMetadata.durationMs ?: 0L) / 1000,
     artworkUrl = mediaMetadata.artworkUri?.toString(),
 )
+
+/** Filler characters some uploaders use to make a title look empty (Hangul fillers, zero-width, braille blank). */
+private val INVISIBLE = setOf('\u115F', '\u1160', '\u3164', '\uFFA0', '\u200B', '\u200C', '\u200D', '\u2800')
+
+/** False for titles that would render as nothing. */
+fun String.hasVisibleText(): Boolean = any { !it.isWhitespace() && it !in INVISIBLE }

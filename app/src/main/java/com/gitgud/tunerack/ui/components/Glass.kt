@@ -121,12 +121,18 @@ fun Artwork(url: String?, size: Dp, modifier: Modifier = Modifier, corner: Dp = 
         ArtworkPlaceholder(size, modifier, corner)
         return
     }
-    SubcomposeAsyncImage(
-        model = url,
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        loading = { ArtworkPlaceholder(size, corner = corner) },
-        error = { ArtworkPlaceholder(size, corner = corner) },
-        modifier = modifier.size(size).clip(RoundedCornerShape(corner)),
-    )
+    // YouTube's 4:3 thumbnails (hqdefault, sddefault, default) letterbox a 16:9 frame; zoom past the bars.
+    val zoom = if (LETTERBOXED.containsMatchIn(url)) 4f / 3f else 1f
+    Box(modifier.size(size).clip(RoundedCornerShape(corner))) {
+        SubcomposeAsyncImage(
+            model = url,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            loading = { ArtworkPlaceholder(size, corner = corner) },
+            error = { ArtworkPlaceholder(size, corner = corner) },
+            modifier = Modifier.size(size).graphicsLayer { scaleX = zoom; scaleY = zoom },
+        )
+    }
 }
+
+private val LETTERBOXED = Regex("ytimg\\.com/vi(_webp)?/[^/]+/(hq|sd)?default\\.")
